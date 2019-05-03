@@ -1,0 +1,12 @@
+.tox/
+__pycache__/
+build/
+dist/
+tests/output/
+tmp/
+*.egg-info/
+*.pyc
+.python-version
+.DS_Store
+.coverage
+coverage.xml
