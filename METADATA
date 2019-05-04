@@ -1,0 +1,17 @@
+name: "asn1crypto"
+description:
+    "A fast, pure Python library for parsing and serializing ASN.1 structures."
+
+third_party {
+  url {
+    type: HOMEPAGE
+    value: "https://github.com/wbond/asn1crypto"
+  }
+  url {
+    type: GIT
+    value: "https://github.com/wbond/asn1crypto"
+  }
+  version: "0.24.0"
+  last_upgrade_date { year: 2019 month: 2 day: 26 }
+  license_type: NOTICE
+}
