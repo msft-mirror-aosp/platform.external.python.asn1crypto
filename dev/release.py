@@ -1,16 +1,13 @@
 # coding: utf-8
 from __future__ import unicode_literals, division, absolute_import, print_function
 
-import os
 import subprocess
 import sys
 
-import setuptools.sandbox
 import twine.cli
 
-
-base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-setup_file = os.path.join(base_dir, 'setup.py')
+from . import package_name, package_root, has_tests_package
+from .build import run as build
 
 
 def run():
@@ -26,7 +23,7 @@ def run():
         ['git', 'status', '--porcelain', '-uno'],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
-        cwd=base_dir
+        cwd=package_root
     )
     git_wc_status, _ = git_wc_proc.communicate()
 
@@ -39,7 +36,7 @@ def run():
         ['git', 'tag', '-l', '--contains', 'HEAD'],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        cwd=base_dir
+        cwd=package_root
     )
     tag, tag_error = git_tag_proc.communicate()
 
@@ -54,14 +51,10 @@ def run():
 
     tag = tag.decode('ascii').strip()
 
-    setuptools.sandbox.run_setup(
-        setup_file,
-        ['sdist', 'bdist_wheel', '--universal']
-    )
+    build()
 
-    twine.cli.dispatch(['upload', 'dist/asn1crypto-%s*' % tag])
+    twine.cli.dispatch(['upload', 'dist/%s-%s*' % (package_name, tag)])
+    if has_tests_package:
+        twine.cli.dispatch(['upload', 'dist/%s_tests-%s*' % (package_name, tag)])
 
-    setuptools.sandbox.run_setup(
-        setup_file,
-        ['clean']
-    )
+    return True
