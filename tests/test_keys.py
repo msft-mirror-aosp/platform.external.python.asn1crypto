@@ -299,6 +299,94 @@ class KeysTests(unittest.TestCase):
             key_info['attributes'].native
         )
 
+    def test_parse_rsapss_private_key(self):
+        with open(os.path.join(fixtures_dir, 'keys/test-rsapss-der.key'), 'rb') as f:
+            key_info = keys.PrivateKeyInfo.load(f.read())
+
+        key = key_info['private_key'].parsed
+
+        self.assertEqual(
+            0,
+            key_info['version'].native
+        )
+        self.assertEqual(
+            'rsassa_pss',
+            key_info['private_key_algorithm']['algorithm'].native
+        )
+        self.assertEqual(
+            None,
+            key_info['private_key_algorithm']['parameters'].native
+        )
+
+        self.assertEqual(
+            'two-prime',
+            key['version'].native
+        )
+        self.assertEqual(
+            20334810015710919160110203472269180092101382951468058535601491502957196266577250503666807938732810152931665713052098820680792829137564325868564844098687045650387144565108903086036194735310494097581552241575174798917880615962200904076841064384200149608953782976948109759991080721261141139715447415148530436086884795768009560076896590825433136132086023781159444716805738553676228393667377624295683128237093827752550284339271476658714835879903906034493875531632793284572104031230158276531850092876884395075794398068537347947800593962574809516836581297669594643468201529164877789603529698620577572178907861813134904392181,  # noqa
+            key['modulus'].native
+        )
+        self.assertEqual(
+            65537,
+            key['public_exponent'].native
+        )
+        self.assertEqual(
+            19811367921985171557639752989981035886303512541789150212828710994763522615025976847568941008714007785902419332260807020468874408966438534060269241736746690644631569655037665166904359886012100769497873119376457740069070560586943676477505866318738720913860857882999478282122015106772111353446622784949473859714808146533832277397219231218258638918521475883551912394494264506377559745603922894963456171825545032908365582944199734667178542763963194351614183530759037228600105514522819433425764227915014375970397879315537366008672232442295229043876987446583754589361036423305704619726617664187630589314612553217357586095673,  # noqa
+            key['private_exponent'].native
+        )
+        self.assertEqual(
+            145062186227663059634108314593892541355080853648164075820395373006330022883408993468365984286369578851636705799765757665015182142763055043654284213839887910732213256250809510746337738407165996181392718941356683486810092456676083857188565619344293262177288309348259896401807590237461717880393098789423620650939,  # noqa
+            key['prime1'].native
+        )
+        self.assertEqual(
+            140179950023620372289001596962713930540779028054089057618536399863850868080064249195053602322991362108187576825895413419966213531630187432159266399149913629896819277637422106295703267471029328291865017941552279870382011332512626586060449095917164740367589115287472025339179557750935025294415109144213020312079,  # noqa
+            key['prime2'].native
+        )
+        self.assertEqual(
+            118228658851708114001194157738654137417646348120344781510758784408198602961600439097293142570946864897406396441532083859790972106955549111215800799518497533665722246507785513633594518505277393228754912332478232018012333162654627815552589285314495327920681107702945726939074883271186966123919571825659906212509,  # noqa
+            key['exponent1'].native
+        )
+        self.assertEqual(
+            56878789554421364113540907677075374840783006759759162308194149033058002105452927576710337564627405910873614034121348759689054278241450542380322750296695046251983127560528078041645807537568272852545501885984378691627606471980343411760066258123338644976958508227786686876412756148631524064712858116223089798721,  # noqa
+            key['exponent2'].native
+        )
+        self.assertEqual(
+            23480707628058872067473220975854826046220552607063059593257976510053338333806071359463231176605785818753563067398907246278690942690250152695883594601176151883590956534074071491193074275985805378044282321604348476199853682247297755042167691612551582210509658456585074900583647465600111554502893125233815233234,  # noqa
+            key['coefficient'].native
+        )
+        self.assertEqual(
+            None,
+            key['other_prime_infos'].native
+        )
+
+        self.assertEqual(
+            None,
+            key_info['attributes'].native
+        )
+
+    def test_parse_rsapss_public_key_info(self):
+        with open(os.path.join(fixtures_dir, 'keys/test-public-rsapss-der.key'), 'rb') as f:
+            key = keys.PublicKeyInfo.load(f.read())
+
+        public_key = key['public_key'].parsed
+
+        self.assertEqual(
+            'rsassa_pss',
+            key['algorithm']['algorithm'].native
+        )
+        self.assertEqual(
+            None,
+            key['algorithm']['parameters'].native
+        )
+        self.assertEqual(
+            20334810015710919160110203472269180092101382951468058535601491502957196266577250503666807938732810152931665713052098820680792829137564325868564844098687045650387144565108903086036194735310494097581552241575174798917880615962200904076841064384200149608953782976948109759991080721261141139715447415148530436086884795768009560076896590825433136132086023781159444716805738553676228393667377624295683128237093827752550284339271476658714835879903906034493875531632793284572104031230158276531850092876884395075794398068537347947800593962574809516836581297669594643468201529164877789603529698620577572178907861813134904392181,  # noqa
+            public_key['modulus'].native
+        )
+        self.assertEqual(
+            65537,
+            public_key['public_exponent'].native
+        )
+
     @staticmethod
     def key_sha1_hashes():
         return (
@@ -377,42 +465,6 @@ class KeysTests(unittest.TestCase):
         )
 
     @data('key_pairs', True)
-    def compare_fingerprints(self, private_key_file, public_key_file, *_):
-        with open(os.path.join(fixtures_dir, private_key_file), 'rb') as f:
-            private_key = keys.PrivateKeyInfo.load(f.read())
-        with open(os.path.join(fixtures_dir, public_key_file), 'rb') as f:
-            public_key = keys.PublicKeyInfo.load(f.read())
-
-        self.assertEqual(private_key.fingerprint, public_key.fingerprint)
-
-    @data('key_pairs', True)
-    def compute_public_key(self, private_key_file, public_key_file, *_):
-        with open(os.path.join(fixtures_dir, private_key_file), 'rb') as f:
-            private_key = keys.PrivateKeyInfo.load(f.read())
-        with open(os.path.join(fixtures_dir, public_key_file), 'rb') as f:
-            public_key = keys.PublicKeyInfo.load(f.read())
-
-        self.assertEqual(public_key['public_key'].native, private_key._compute_public_key().native)
-
-    @data('key_pairs', True)
-    def public_key_property(self, private_key_file, public_key_file, *_):
-        with open(os.path.join(fixtures_dir, private_key_file), 'rb') as f:
-            private_key = keys.PrivateKeyInfo.load(f.read())
-        with open(os.path.join(fixtures_dir, public_key_file), 'rb') as f:
-            public_key = keys.PublicKeyInfo.load(f.read())
-
-        self.assertEqual(public_key['public_key'].native, private_key.public_key.native)
-
-    @data('key_pairs', True)
-    def public_key_info_property(self, private_key_file, public_key_file, *_):
-        with open(os.path.join(fixtures_dir, private_key_file), 'rb') as f:
-            private_key = keys.PrivateKeyInfo.load(f.read())
-        with open(os.path.join(fixtures_dir, public_key_file), 'rb') as f:
-            public_key = keys.PublicKeyInfo.load(f.read())
-
-        self.assertEqual(public_key.dump(), private_key.public_key_info.dump())
-
-    @data('key_pairs', True)
     def algorithm_name(self, private_key_file, public_key_file, algorithm, _):
         with open(os.path.join(fixtures_dir, private_key_file), 'rb') as f:
             private_key = keys.PrivateKeyInfo.load(f.read())
@@ -456,15 +508,6 @@ class KeysTests(unittest.TestCase):
                 'keys/test-der.key',
             ),
         )
-
-    @data('key_variations', True)
-    def unwrap(self, wrapped_private_key_file, unwrapped_private_key_file):
-        with open(os.path.join(fixtures_dir, wrapped_private_key_file), 'rb') as f:
-            private_key = keys.PrivateKeyInfo.load(f.read())
-        with open(os.path.join(fixtures_dir, unwrapped_private_key_file), 'rb') as f:
-            unwrapped_bytes = f.read()
-
-        self.assertEqual(unwrapped_bytes, private_key.unwrap().dump())
 
     def test_curve_invalid(self):
         with open(os.path.join(fixtures_dir, 'keys/test-pkcs8-der.key'), 'rb') as f:
@@ -548,3 +591,79 @@ class KeysTests(unittest.TestCase):
             public_key = keys.PublicKeyInfo.load(f.read())
 
         self.assertEqual(curve, public_key.curve)
+
+    def test_named_curve_register(self):
+        keys.NamedCurve.register('customcurve', '1.2.3.4.5.6.7.8', 16)
+
+        k = keys.NamedCurve('customcurve')
+        self.assertEqual('customcurve', k.native)
+        self.assertEqual('1.2.3.4.5.6.7.8', k.dotted)
+
+        k = keys.ECPrivateKey({
+            'version': 1,
+            'private_key': 1,
+            'parameters': keys.ECDomainParameters(('named', 'customcurve')),
+        })
+
+        self.assertEqual('ecPrivkeyVer1', k['version'].native)
+        self.assertEqual(1, k['private_key'].native)
+        self.assertEqual('customcurve', k['parameters'].native)
+        self.assertEqual(
+            b'\x04\x10\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01',
+            k['private_key'].dump()
+        )
+
+    def test_ec_private_key_width(self):
+        k = keys.ECPrivateKey({
+            'version': 1,
+            'private_key': 1,
+            'parameters': keys.ECDomainParameters(('named', 'secp256r1')),
+        })
+
+        self.assertEqual('ecPrivkeyVer1', k['version'].native)
+        self.assertEqual(1, k['private_key'].native)
+        self.assertEqual('secp256r1', k['parameters'].native)
+        self.assertEqual(
+            b'\x04\x20\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
+            b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01',
+            k['private_key'].dump()
+        )
+
+    def test_ec_private_key_width_dotted(self):
+        k = keys.ECPrivateKey({
+            'version': 1,
+            'private_key': 1,
+            'parameters': keys.ECDomainParameters(('named', '1.3.132.0.10')),
+        })
+
+        self.assertEqual('ecPrivkeyVer1', k['version'].native)
+        self.assertEqual(1, k['private_key'].native)
+        self.assertEqual('secp256k1', k['parameters'].native)
+        self.assertEqual(
+            b'\x04\x20\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
+            b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01',
+            k['private_key'].dump()
+        )
+
+    def test_ec_private_key_info_width(self):
+        pki = keys.PrivateKeyInfo({
+            'version': 0,
+            'private_key_algorithm': {
+                'algorithm': 'ec',
+                'parameters': ('named', 'secp256r1'),
+            },
+            'private_key': {
+                'version': 1,
+                'private_key': 1
+            }
+        })
+
+        k = pki['private_key'].parsed
+        self.assertEqual('ecPrivkeyVer1', k['version'].native)
+        self.assertEqual(1, k['private_key'].native)
+        self.assertEqual(None, k['parameters'].native)
+        self.assertEqual(
+            b'\x04\x20\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
+            b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01',
+            k['private_key'].dump()
+        )

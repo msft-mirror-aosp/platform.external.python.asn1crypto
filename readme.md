@@ -13,12 +13,14 @@ A fast, pure Python library for parsing and serializing ASN.1 structures.
  - [Continuous Integration](#continuous-integration)
  - [Testing](#testing)
  - [Development](#development)
+ - [CI Tasks](#ci-tasks)
 
+[![GitHub Actions CI](https://github.com/wbond/asn1crypto/workflows/CI/badge.svg)](https://github.com/wbond/asn1crypto/actions?workflow=CI)
 [![Travis CI](https://api.travis-ci.org/wbond/asn1crypto.svg?branch=master)](https://travis-ci.org/wbond/asn1crypto)
 [![AppVeyor](https://ci.appveyor.com/api/projects/status/github/wbond/asn1crypto?branch=master&svg=true)](https://ci.appveyor.com/project/wbond/asn1crypto)
 [![CircleCI](https://circleci.com/gh/wbond/asn1crypto.svg?style=shield)](https://circleci.com/gh/wbond/asn1crypto)
 [![Codecov](https://codecov.io/gh/wbond/asn1crypto/branch/master/graph/badge.svg)](https://codecov.io/gh/wbond/asn1crypto)
-[![PyPI](https://img.shields.io/pypi/v/asn1crypto.svg)](https://pypi.python.org/pypi/asn1crypto)
+[![PyPI](https://img.shields.io/pypi/v/asn1crypto.svg)](https://pypi.org/project/asn1crypto/)
 
 ## Features
 
@@ -44,8 +46,8 @@ a bunch of ASN.1 structures for use with various common cryptography standards:
 
 ## Why Another Python ASN.1 Library?
 
-Python has long had the [pyasn1](https://pypi.python.org/pypi/pyasn1) and
-[pyasn1_modules](https://pypi.python.org/pypi/pyasn1-modules) available for
+Python has long had the [pyasn1](https://pypi.org/project/pyasn1/) and
+[pyasn1_modules](https://pypi.org/project/pyasn1-modules/) available for
 parsing and serializing ASN.1 structures. While the project does include a
 comprehensive set of tools for parsing and serializing, the performance of the
 library can be very poor, especially when dealing with bit fields and parsing
@@ -94,7 +96,7 @@ under 8 seconds. With *pyasn1*, using definitions from *pyasn1-modules*, the
 same parsing took over 4,100 seconds.
 
 For smaller structures the performance difference can range from a few times
-faster to an order of magnitude of more.
+faster to an order of magnitude or more.
 
 ## Related Crypto Libraries
 
@@ -110,12 +112,12 @@ faster to an order of magnitude of more.
 
 ## Current Release
 
-0.24.0 - [changelog](changelog.md)
+1.0.0 - [changelog](changelog.md)
 
 ## Dependencies
 
-Python 2.6, 2.7, 3.2, 3.3, 3.4, 3.5, 3.6 or pypy. *No third-party packages
-required.*
+Python 2.6, 2.7, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8 or pypy. *No third-party
+packages required.*
 
 ## Installation
 
@@ -161,7 +163,15 @@ links to the source for the various pre-defined type classes.
 
 ## Testing
 
-Tests are written using `unittest` and require no third-party packages:
+Tests are written using `unittest` and require no third-party packages.
+
+Depending on what type of source is available for the package, the following
+commands can be used to run the test suite.
+
+### Git Repository
+
+When working within a Git working copy, or an archive of the Git repository,
+the full test suite is run via:
 
 ```bash
 python run.py tests
@@ -171,6 +181,25 @@ To run only some tests, pass a regular expression as a parameter to `tests`.
 
 ```bash
 python run.py tests ocsp
+```
+
+### PyPi Source Distribution
+
+When working within an extracted source distribution (aka `.tar.gz`) from
+PyPi, the full test suite is run via:
+
+```bash
+python setup.py test
+```
+
+### Package
+
+When the package has been installed via pip (or another method), the package
+`asn1crypto_tests` may be installed and invoked to run the full test suite:
+
+```bash
+pip install asn1crypto_tests
+python -m asn1crypto_tests
 ```
 
 ## Development
@@ -199,6 +228,12 @@ Coverage is measured by running:
 python run.py coverage
 ```
 
+To change the version number of the package, run:
+
+```bash
+python run.py version {pep440_version}
+```
+
 To install the necessary packages for releasing a new version on PyPI, run:
 
 ```bash
@@ -207,19 +242,22 @@ pip install --user -r requires/release
 
 Releases are created by:
 
- - Making a git tag in [semver](http://semver.org/) format
+ - Making a git tag in [PEP 440](https://www.python.org/dev/peps/pep-0440/#examples-of-compliant-version-schemes) format
  - Running the command:
 
    ```bash
    python run.py release
    ```
 
-Existing releases can be found at https://pypi.python.org/pypi/asn1crypto.
+Existing releases can be found at https://pypi.org/project/asn1crypto/.
 
 ## CI Tasks
 
-A task named `deps` exists to ensure a modern version of `pip` is installed,
-along with all necessary testing dependencies.
+A task named `deps` exists to download and stage all necessary testing
+dependencies. On posix platforms, `curl` is used for downloads and on Windows
+PowerShell with `Net.WebClient` is used. This configuration sidesteps issues
+related to getting pip to work properly and messing with `site-packages` for
+the version of Python being used.
 
 The `ci` task runs `lint` (if flake8 is available for the version of Python) and
 `coverage` (or `tests` if coverage is not available for the version of Python).
