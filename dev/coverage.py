@@ -1,27 +1,37 @@
 # coding: utf-8
 from __future__ import unicode_literals, division, absolute_import, print_function
 
+import cgi
+import codecs
 import coverage
 import imp
 import json
 import os
 import unittest
+import re
 import sys
+import tempfile
+import time
 import platform as _plat
 import subprocess
 from fnmatch import fnmatch
 
+from . import package_name, package_root, other_packages
+
 if sys.version_info < (3,):
-    str_cls = unicode
-    from urllib2 import Request, urlopen, URLError, HTTPError
+    str_cls = unicode  # noqa
+    from urllib2 import URLError
     from urllib import urlencode
-    import cgi
     from io import open
 else:
     str_cls = str
-    from urllib.request import Request, urlopen
-    from urllib.error import URLError, HTTPError
+    from urllib.error import URLError
     from urllib.parse import urlencode
+
+if sys.version_info < (3, 7):
+    Pattern = re._pattern_type
+else:
+    Pattern = re.Pattern
 
 
 def run(ci=False):
@@ -36,11 +46,11 @@ def run(ci=False):
         A bool - if the tests ran successfully
     """
 
-    xml_report_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'coverage.xml'))
+    xml_report_path = os.path.join(package_root, 'coverage.xml')
     if os.path.exists(xml_report_path):
         os.unlink(xml_report_path)
 
-    cov = coverage.Coverage(include='asn1crypto/*.py')
+    cov = coverage.Coverage(include='%s/*.py' % package_name)
     cov.start()
 
     from .tests import run as run_tests
@@ -50,8 +60,8 @@ def run(ci=False):
     if ci:
         suite = unittest.TestSuite()
         loader = unittest.TestLoader()
-        for package_name in ['oscrypto', 'certbuilder', 'certvalidator', 'crlbuilder', 'csrbuild', 'ocspbuilder']:
-            for test_class in _load_package_tests(package_name):
+        for other_package in other_packages:
+            for test_class in _load_package_tests(other_package):
                 suite.addTest(loader.loadTestsFromTestCase(test_class))
 
         if suite.countTestCases() > 0:
@@ -98,8 +108,44 @@ def _load_package_tests(name):
     return tests_module.test_classes()
 
 
-def _codecov_submit():
+def _env_info():
+    """
+    :return:
+        A two-element tuple of unicode strings. The first is the name of the
+        environment, the second the root of the repo. The environment name
+        will be one of: "ci-travis", "ci-circle", "ci-appveyor",
+        "ci-github-actions", "local"
+    """
+
     if os.getenv('CI') == 'true' and os.getenv('TRAVIS') == 'true':
+        return ('ci-travis', os.getenv('TRAVIS_BUILD_DIR'))
+
+    if os.getenv('CI') == 'True' and os.getenv('APPVEYOR') == 'True':
+        return ('ci-appveyor', os.getenv('APPVEYOR_BUILD_FOLDER'))
+
+    if os.getenv('CI') == 'true' and os.getenv('CIRCLECI') == 'true':
+        return ('ci-circle', os.getcwdu() if sys.version_info < (3,) else os.getcwd())
+
+    if os.getenv('GITHUB_ACTIONS') == 'true':
+        return ('ci-github-actions', os.getenv('GITHUB_WORKSPACE'))
+
+    return ('local', package_root)
+
+
+def _codecov_submit():
+    env_name, root = _env_info()
+
+    try:
+        with open(os.path.join(root, 'codecov.json'), 'rb') as f:
+            json_data = json.loads(f.read().decode('utf-8'))
+    except (OSError, ValueError, UnicodeDecodeError, KeyError):
+        print('error reading codecov.json')
+        return
+
+    if json_data.get('disabled'):
+        return
+
+    if env_name == 'ci-travis':
         # http://docs.travis-ci.com/user/environment-variables/#Default-Environment-Variables
         build_url = 'https://travis-ci.org/%s/jobs/%s' % (os.getenv('TRAVIS_REPO_SLUG'), os.getenv('TRAVIS_JOB_ID'))
         query = {
@@ -113,25 +159,30 @@ def _codecov_submit():
             'commit': os.getenv('TRAVIS_COMMIT'),
             'build_url': build_url,
         }
-        root = os.getenv('TRAVIS_BUILD_DIR')
 
-    elif os.getenv('CI') == 'True' and os.getenv('APPVEYOR') == 'True':
+    elif env_name == 'ci-appveyor':
         # http://www.appveyor.com/docs/environment-variables
-        build_url = 'https://ci.appveyor.com/project/%s/build/%s' % (os.getenv('APPVEYOR_REPO_NAME'), os.getenv('APPVEYOR_BUILD_VERSION'))
+        build_url = 'https://ci.appveyor.com/project/%s/build/%s' % (
+            os.getenv('APPVEYOR_REPO_NAME'),
+            os.getenv('APPVEYOR_BUILD_VERSION')
+        )
         query = {
             'service': "appveyor",
             'branch': os.getenv('APPVEYOR_REPO_BRANCH'),
             'build': os.getenv('APPVEYOR_JOB_ID'),
             'pr': os.getenv('APPVEYOR_PULL_REQUEST_NUMBER'),
-            'job': '/'.join((os.getenv('APPVEYOR_ACCOUNT_NAME'), os.getenv('APPVEYOR_PROJECT_SLUG'), os.getenv('APPVEYOR_BUILD_VERSION'))),
+            'job': '/'.join((
+                os.getenv('APPVEYOR_ACCOUNT_NAME'),
+                os.getenv('APPVEYOR_PROJECT_SLUG'),
+                os.getenv('APPVEYOR_BUILD_VERSION')
+            )),
             'tag': os.getenv('APPVEYOR_REPO_TAG_NAME'),
             'slug': os.getenv('APPVEYOR_REPO_NAME'),
             'commit': os.getenv('APPVEYOR_REPO_COMMIT'),
             'build_url': build_url,
         }
-        root = os.getenv('APPVEYOR_BUILD_FOLDER')
 
-    elif os.getenv('CI') == 'true' and os.getenv('CIRCLECI') == 'true':
+    elif env_name == 'ci-circle':
         # https://circleci.com/docs/environment-variables
         query = {
             'service': 'circleci',
@@ -144,29 +195,38 @@ def _codecov_submit():
             'commit': os.getenv('CIRCLE_SHA1'),
             'build_url': os.getenv('CIRCLE_BUILD_URL'),
         }
-        if sys.version_info < (3,):
-            root = os.getcwdu()
-        else:
-            root = os.getcwd()
+
+    elif env_name == 'ci-github-actions':
+        branch = ''
+        tag = ''
+        ref = os.getenv('GITHUB_REF', '')
+        if ref.startswith('refs/tags/'):
+            tag = ref[10:]
+        elif ref.startswith('refs/heads/'):
+            branch = ref[11:]
+
+        impl = _plat.python_implementation()
+        major, minor = _plat.python_version_tuple()[0:2]
+        build_name = '%s %s %s.%s' % (_platform_name(), impl, major, minor)
+
+        query = {
+            'service': 'custom',
+            'token': json_data['token'],
+            'branch': branch,
+            'tag': tag,
+            'slug': os.getenv('GITHUB_REPOSITORY'),
+            'commit': os.getenv('GITHUB_SHA'),
+            'build_url': 'https://github.com/wbond/oscrypto/commit/%s/checks' % os.getenv('GITHUB_SHA'),
+            'name': 'GitHub Actions %s on %s' % (build_name, os.getenv('RUNNER_OS'))
+        }
+
     else:
-        root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
         if not os.path.exists(os.path.join(root, '.git')):
             print('git repository not found, not submitting coverage data')
             return
         git_status = _git_command(['status', '--porcelain'], root)
         if git_status != '':
             print('git repository has uncommitted changes, not submitting coverage data')
-            return
-
-        slug = None
-        token = None
-        try:
-            with open(os.path.join(root, 'codecov.json'), 'rb') as f:
-                json_data = json.loads(f.read().decode('utf-8'))
-                slug = json_data['slug']
-                token = json_data['token']
-        except (OSError, ValueError, UnicodeDecodeError, KeyError):
-            print('error reading codecov.json')
             return
 
         branch = _git_command(['rev-parse', '--abbrev-ref', 'HEAD'], root)
@@ -178,8 +238,8 @@ def _codecov_submit():
         query = {
             'branch': branch,
             'commit': commit,
-            'slug': slug,
-            'token': token,
+            'slug': json_data['slug'],
+            'token': json_data['token'],
             'build': build_name,
         }
         if tag != 'undefined':
@@ -198,7 +258,7 @@ def _codecov_submit():
     payload += '# path=coverage.xml\n'
     with open(os.path.join(root, 'coverage.xml'), 'r', encoding='utf-8') as f:
         payload += f.read() + '\n'
-    payload +='<<<<<< EOF\n'
+    payload += '<<<<<< EOF\n'
 
     url = 'https://codecov.io/upload/v4'
     headers = {
@@ -222,7 +282,7 @@ def _codecov_submit():
     encoding = info[1] or 'utf-8'
     text = info[2].decode(encoding).strip()
     parts = text.split()
-    result, upload_url = parts[0], parts[1]
+    upload_url = parts[1]
 
     headers = {
         'Content-Type': 'text/plain',
@@ -231,7 +291,7 @@ def _codecov_submit():
     }
 
     print('Uploading coverage data to codecov.io S3 bucket')
-    put_info = _do_request(
+    _do_request(
         'PUT',
         upload_url,
         headers,
@@ -430,12 +490,12 @@ def _gitignore(root):
     return (dir_patterns, file_patterns)
 
 
-def _do_request(method, url, headers, data=None, query_params=None, timeout=30):
+def _do_request(method, url, headers, data=None, query_params=None, timeout=20):
     """
     Performs an HTTP request
 
     :param method:
-        A unicode string of 'GET', 'POST', 'PUT', or 'DELETE'
+        A unicode string of 'POST' or 'PUT'
 
     :param url;
         A unicode string of the URL to request
@@ -464,9 +524,6 @@ def _do_request(method, url, headers, data=None, query_params=None, timeout=30):
     if query_params:
         url += '?' + urlencode(query_params).replace('+', '%20')
 
-    request = Request(url)
-    request.get_method = lambda: method
-
     if isinstance(data, dict):
         data_bytes = {}
         for key in data:
@@ -476,29 +533,142 @@ def _do_request(method, url, headers, data=None, query_params=None, timeout=30):
     if isinstance(data, str_cls):
         raise TypeError('data must be a byte string')
 
-    for key in headers:
-        value = headers[key]
-        if sys.version_info < (3,):
-            key = key.encode('iso-8859-1')
-            value = value.encode('iso-8859-1')
-        request.add_header(key, value)
+    try:
+        tempfd, tempf_path = tempfile.mkstemp('-coverage')
+        os.write(tempfd, data or b'')
+        os.close(tempfd)
 
-    response = urlopen(request, data, timeout)
-    if sys.version_info < (3,):
-        status = response.getcode()
-        try:
-            content_type, params = cgi.parse_header(response.headers['Content-Type'].strip())
-            encoding = params.get('charset')
-        except (KeyError):
-            content_type = None
-            encoding = None
+        if sys.platform == 'win32':
+            powershell_exe = os.path.join('system32\\WindowsPowerShell\\v1.0\\powershell.exe')
+            code = "[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12;"
+            code += "$wc = New-Object Net.WebClient;"
+            for key in headers:
+                code += "$wc.Headers.add('%s','%s');" % (key, headers[key])
+            code += "$out = $wc.UploadFile('%s', '%s', '%s');" % (url, method, tempf_path)
+            code += "[System.Text.Encoding]::GetEncoding('ISO-8859-1').GetString($wc.ResponseHeaders.ToByteArray())"
+
+            # To properly obtain bytes, we use BitConverter to get hex dash
+            # encoding (e.g. AE-09-3F) and they decode in python
+            code += " + [System.BitConverter]::ToString($out);"
+            stdout, stderr = _execute(
+                [powershell_exe, '-Command', code],
+                os.getcwd(),
+                re.compile(r'Unable to connect to|TLS|Internal Server Error'),
+                6
+            )
+            if stdout[-2:] == b'\r\n' and b'\r\n\r\n' in stdout:
+                # An extra trailing crlf is added at the end by powershell
+                stdout = stdout[0:-2]
+                parts = stdout.split(b'\r\n\r\n', 1)
+                if len(parts) == 2:
+                    stdout = parts[0] + b'\r\n\r\n' + codecs.decode(parts[1].replace(b'-', b''), 'hex_codec')
+
+        else:
+            args = [
+                'curl',
+                '--request',
+                method,
+                '--location',
+                '--silent',
+                '--show-error',
+                '--include',
+                # Prevent curl from asking for an HTTP "100 Continue" response
+                '--header', 'Expect:'
+            ]
+            for key in headers:
+                args.append('--header')
+                args.append("%s: %s" % (key, headers[key]))
+            args.append('--data-binary')
+            args.append('@%s' % tempf_path)
+            args.append(url)
+            stdout, stderr = _execute(
+                args,
+                os.getcwd(),
+                re.compile(r'Failed to connect to|TLS|SSLRead|outstanding|cleanly'),
+                6
+            )
+    finally:
+        if tempf_path and os.path.exists(tempf_path):
+            os.remove(tempf_path)
+
+    if len(stderr) > 0:
+        raise URLError("Error %sing %s:\n%s" % (method, url, stderr))
+
+    parts = stdout.split(b'\r\n\r\n', 1)
+    if len(parts) != 2:
+        raise URLError("Error %sing %s, response data malformed:\n%s" % (method, url, stdout))
+    header_block, body = parts
+
+    content_type_header = None
+    content_len_header = None
+    for hline in header_block.decode('iso-8859-1').splitlines():
+        hline_parts = hline.split(':', 1)
+        if len(hline_parts) != 2:
+            continue
+        name, val = hline_parts
+        name = name.strip().lower()
+        val = val.strip()
+        if name == 'content-type':
+            content_type_header = val
+        if name == 'content-length':
+            content_len_header = val
+
+    if content_type_header is None and content_len_header != '0':
+        raise URLError("Error %sing %s, no content-type header:\n%s" % (method, url, stdout))
+
+    if content_type_header is None:
+        content_type = 'text/plain'
+        encoding = 'utf-8'
     else:
-        status = response.status
-        content_type = response.info().get_content_type()
-        encoding = response.headers.get_content_charset()
-    if status != 200:
-        raise HTTPError('Unexpected HTTP %d response' % status)
-    return (content_type, encoding, response.read())
+        content_type, params = cgi.parse_header(content_type_header)
+        encoding = params.get('charset')
+
+    return (content_type, encoding, body)
+
+
+def _execute(params, cwd, retry=None, retries=0):
+    """
+    Executes a subprocess
+
+    :param params:
+        A list of the executable and arguments to pass to it
+
+    :param cwd:
+        The working directory to execute the command in
+
+    :param retry:
+        If this string is present in stderr, or regex pattern matches stderr, retry the operation
+
+    :param retries:
+        An integer number of times to retry
+
+    :return:
+        A 2-element tuple of (stdout, stderr)
+    """
+
+    proc = subprocess.Popen(
+        params,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        cwd=cwd
+    )
+    stdout, stderr = proc.communicate()
+    code = proc.wait()
+    if code != 0:
+        if retry and retries > 0:
+            stderr_str = stderr.decode('utf-8')
+            if isinstance(retry, Pattern):
+                if retry.search(stderr_str) is not None:
+                    time.sleep(5)
+                    return _execute(params, cwd, retry, retries - 1)
+            elif retry in stderr_str:
+                time.sleep(5)
+                return _execute(params, cwd, retry, retries - 1)
+        e = OSError('subprocess exit code for "%s" was %d: %s' % (' '.join(params), code, stderr))
+        e.stdout = stdout
+        e.stderr = stderr
+        raise e
+    return (stdout, stderr)
 
 
 if __name__ == '__main__':
