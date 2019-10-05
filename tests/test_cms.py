@@ -7,7 +7,7 @@ import zlib
 import sys
 from datetime import datetime
 
-from asn1crypto import cms, util, core
+from asn1crypto import cms, util
 from ._unittest_compat import patch
 
 patch()
@@ -279,7 +279,7 @@ class CMSTests(unittest.TestCase):
             recipient['rid'].native
         )
         self.assertEqual(
-            'rsa',
+            'rsaes_pkcs1v15',
             recipient['key_encryption_algorithm']['algorithm'].native
         )
         self.assertEqual(

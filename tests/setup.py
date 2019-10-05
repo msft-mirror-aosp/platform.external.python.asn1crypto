@@ -11,7 +11,9 @@ from setuptools.command.egg_info import egg_info
 
 PACKAGE_NAME = 'asn1crypto'
 PACKAGE_VERSION = '1.0.0'
-PACKAGE_ROOT = os.path.dirname(os.path.abspath(__file__))
+TEST_PACKAGE_NAME = '%s_tests' % PACKAGE_NAME
+TESTS_ROOT = os.path.dirname(os.path.abspath(__file__))
+PACKAGE_ROOT = os.path.abspath(os.path.join(TESTS_ROOT, '..'))
 
 
 # setuptools 38.6.0 and newer know about long_description_content_type, but
@@ -26,27 +28,25 @@ if svi >= (38, 6):
     )
 
 
-# Try to load the tests first from the source repository layout. If that
-# doesn't work, we assume this file is in the release package, and the tests
-# are part of the package {PACKAGE_NAME}_tests.
-if os.path.exists(os.path.join(PACKAGE_ROOT, 'tests')):
-    tests_require = []
-    test_suite = 'tests.make_suite'
-else:
-    tests_require = ['%s_tests' % PACKAGE_NAME]
-    test_suite = '%s_tests.make_suite' % PACKAGE_NAME
-
-
-# This allows us to send the LICENSE and docs when creating a sdist. Wheels
-# automatically include the LICENSE, and don't need the docs. For these
+# Older versions of distutils would take a glob pattern and return dirs
+# and then would complain that it couldn't copy a dir like a file, so we
+# have to build an explicit list of file names
+data_files = []
+fixtures_dir = os.path.join(TESTS_ROOT, 'fixtures')
+for root, dirs, files in os.walk(fixtures_dir):
+    for filename in files:
+        data_files.append(os.path.join(root, filename)[len(TESTS_ROOT) + 1:])
+package_data = {
+    TEST_PACKAGE_NAME: data_files
+}
+# This allows us to send the LICENSE when creating a sdist. Wheels
+# automatically include the license, and don't need the docs. For these
 # to be included, the command must be "python setup.py sdist".
-package_data = {}
 if sys.argv[1:] == ['sdist'] or sorted(sys.argv[1:]) == ['-q', 'sdist']:
-    package_data[PACKAGE_NAME] = [
-        '../LICENSE',
-        '../*.md',
-        '../docs/*.md',
-    ]
+    package_data[TEST_PACKAGE_NAME].extend([
+        'LICENSE',
+        'readme.md',
+    ])
 
 
 # Ensures a copy of the LICENSE is included with the egg-info for
@@ -54,8 +54,8 @@ if sys.argv[1:] == ['sdist'] or sorted(sys.argv[1:]) == ['-q', 'sdist']:
 class EggInfoCommand(egg_info):
     def run(self):
         egg_info_path = os.path.join(
-            PACKAGE_ROOT,
-            '%s.egg-info' % PACKAGE_NAME
+            TESTS_ROOT,
+            '%s.egg-info' % TEST_PACKAGE_NAME
         )
         if not os.path.exists(egg_info_path):
             os.mkdir(egg_info_path)
@@ -78,14 +78,14 @@ class CleanCommand(Command):
         pass
 
     def run(self):
-        sub_folders = ['build', 'temp', '%s.egg-info' % PACKAGE_NAME]
+        sub_folders = ['build', 'temp', '%s.egg-info' % TEST_PACKAGE_NAME]
         if self.all:
             sub_folders.append('dist')
         for sub_folder in sub_folders:
-            full_path = os.path.join(PACKAGE_ROOT, sub_folder)
+            full_path = os.path.join(TESTS_ROOT, sub_folder)
             if os.path.exists(full_path):
                 shutil.rmtree(full_path)
-        for root, dirs, files in os.walk(os.path.join(PACKAGE_ROOT, PACKAGE_NAME)):
+        for root, dirs, files in os.walk(TESTS_ROOT):
             for filename in files:
                 if filename[-4:] == '.pyc':
                     os.unlink(os.path.join(root, filename))
@@ -95,18 +95,16 @@ class CleanCommand(Command):
 
 
 readme = ''
-with codecs.open(os.path.join(PACKAGE_ROOT, 'readme.md'), 'r', 'utf-8') as f:
+with codecs.open(os.path.join(TESTS_ROOT, 'readme.md'), 'r', 'utf-8') as f:
     readme = f.read()
 
 
 setup(
-    name=PACKAGE_NAME,
+    name=TEST_PACKAGE_NAME,
     version=PACKAGE_VERSION,
 
     description=(
-        'Fast ASN.1 parser and serializer with definitions for private keys, '
-        'public keys, certificates, CRL, OCSP, CMS, PKCS#3, PKCS#7, PKCS#8, '
-        'PKCS#12, PKCS#5, X.509 and TSP'
+        'Test suite for asn1crypto, separated due to file size'
     ),
     long_description=readme,
     long_description_content_type='text/markdown',
@@ -144,12 +142,13 @@ setup(
     ],
 
     keywords='asn1 crypto pki x509 certificate rsa dsa ec dh',
-
-    packages=[PACKAGE_NAME],
+    packages=[TEST_PACKAGE_NAME],
+    package_dir={TEST_PACKAGE_NAME: '.'},
     package_data=package_data,
 
-    tests_require=tests_require,
-    test_suite=test_suite,
+    install_requires=[
+        '%s==%s' % (PACKAGE_NAME, PACKAGE_VERSION),
+    ],
 
     cmdclass={
         'clean': CleanCommand,
