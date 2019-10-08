@@ -3,7 +3,7 @@ from __future__ import unicode_literals, division, absolute_import, print_functi
 
 import unittest
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from asn1crypto import core, util
 
@@ -56,6 +56,30 @@ class CopySeq(core.Sequence):
     ]
 
 
+class NestSeqAny(core.Sequence):
+    _fields = [
+        ('id', core.ObjectIdentifier),
+        ('value', core.Any),
+    ]
+
+    _oid_pair = ('id', 'value')
+    _oid_specs = {
+        '3.4.5': Seq,
+    }
+
+
+class NestSeqExplicit(core.Sequence):
+    _fields = [
+        ('id', core.ObjectIdentifier),
+        ('value', NamedBits),
+    ]
+
+    _oid_pair = ('id', 'value')
+    _oid_specs = {
+        '3.4.5': Seq,
+    }
+
+
 class Enum(core.Enumerated):
     _map = {
         0: 'a',
@@ -97,6 +121,19 @@ class SeqChoiceOldApi(core.Choice):
     _alternatives = [
         ('one', CopySeq, {'tag_type': 'explicit', 'tag': 0}),
         ('two', CopySeq, {'tag_type': 'implicit', 'tag': 1}),
+    ]
+
+
+class ChoiceChoice(core.Choice):
+    _alternatives = [
+        ('num', NumChoice, {'explicit': 0}),
+        ('seq', SeqChoice, {'explicit': 1}),
+    ]
+
+
+class CCSeq(core.Sequence):
+    _fields = [
+        ('cc', ChoiceChoice)
     ]
 
 
@@ -144,6 +181,7 @@ class MyOids(core.ObjectIdentifier):
         '4.5.6': 'def',
     }
 
+
 class ApplicationTaggedInteger(core.Integer):
     # This class attribute may be a 2-element tuple of integers,
     # or a tuple of 2-element tuple of integers. The first form
@@ -190,8 +228,101 @@ class ApplicationTaggedOuter(core.Sequence):
     ]
 
 
+class SpcPeImageFlags(core.BitString):
+    _map = {
+        0: "includeResources",
+        1: "includeDebugInfo",
+        2: "includeImportAddressTable",
+    }
+
+
+class SpcSerializedObject(core.Sequence):
+    _fields = [
+        ("classId", core.OctetString),
+        ("serializedData", core.OctetString),
+    ]
+
+
+class SpcString(core.Choice):
+    _alternatives = [
+        ("unicode", core.BMPString, {"implicit": 0}),
+        ("ascii", core.IA5String, {"implicit": 1}),
+    ]
+
+
+class SpcLink(core.Choice):
+    _alternatives = [
+        ("url", core.IA5String, {"implicit": 0}),
+        ("moniker", SpcSerializedObject, {"implicit": 1}),
+        ("file", SpcString, {"explicit": 2})
+    ]
+
+
+class SpcPeImageData(core.Sequence):
+    _fields = [
+        ("flags", SpcPeImageFlags, {"default": "includeResources"}),
+        ("file", SpcLink, {"explicit": 0})
+    ]
+
+
+class UTF8Sequence(core.Sequence):
+    _fields = [
+        ("string", core.UTF8String)
+    ]
+
+
+class NestedUTF8Sequence(core.Sequence):
+    _fields = [
+        ("seq", UTF8Sequence)
+    ]
+
+
 @data_decorator
 class CoreTests(unittest.TestCase):
+
+    def test_large_tag_encode(self):
+        # https://misc.daniel-marschall.de/asn.1/oid_facts.html
+        v = core.Primitive(tag=31, contents=b'')
+        self.assertEqual(b'\x1f\x1f\x00', v.dump())
+
+        v = core.Primitive(tag=36, contents=b'')
+        self.assertEqual(b'\x1f\x24\x00', v.dump())
+
+        # One extra byte
+        v = core.Primitive(
+            class_="application",
+            method="constructed",
+            tag=73,
+            contents=b''
+        )
+        self.assertEqual(b'\x7f\x49\x00', v.dump())
+
+        # Two extra bytes
+        v = core.Primitive(
+            class_="application",
+            method="constructed",
+            tag=201,
+            contents=b''
+        )
+        self.assertEqual(b'\x7f\x81\x49\x00', v.dump())
+
+        # Three extra bytes
+        v = core.Primitive(
+            class_="application",
+            method="constructed",
+            tag=16384,
+            contents=b''
+        )
+        self.assertEqual(b'\x7f\x81\x80\x00\x00', v.dump())
+
+    def test_manual_construction(self):
+        v = core.Asn1Value(
+            class_="application",
+            method="constructed",
+            tag=1,
+            contents=b''
+        )
+        self.assertEqual(b'\x61\x00', v.dump())
 
     def test_sequence_spec(self):
         seq = Seq()
@@ -255,6 +386,8 @@ class CoreTests(unittest.TestCase):
             (datetime(2030, 12, 31, 8, 30, 0, tzinfo=util.timezone.utc), b'\x17\x0D301231083000Z'),
             (datetime(2049, 12, 31, 8, 30, 0, tzinfo=util.timezone.utc), b'\x17\x0D491231083000Z'),
             (datetime(1950, 12, 31, 8, 30, 0, tzinfo=util.timezone.utc), b'\x17\x0D501231083000Z'),
+            (datetime(2018, 10, 20, 7, 35, 4, tzinfo=util.timezone(timedelta(hours=7, minutes=40))),
+             b'\x17\x0D181019235504Z'),
         )
 
     @data('utctime_info')
@@ -262,6 +395,66 @@ class CoreTests(unittest.TestCase):
         u = core.UTCTime(native)
         self.assertEqual(der_bytes, u.dump())
         self.assertEqual(native, core.UTCTime.load(der_bytes).native)
+
+    def test_utctime_errors(self):
+        with self.assertRaises(ValueError):
+            # is not aware
+            core.UTCTime(datetime.fromtimestamp(1234567890))
+
+        with self.assertRaises(ValueError):
+            # Is pre 1950
+            core.UTCTime(datetime(1910, 6, 22, 11, 33, 44, tzinfo=util.timezone.utc))
+
+        with self.assertRaises(ValueError):
+            # Is past 2050
+            core.UTCTime(datetime(2106, 2, 7, 6, 28, 16, tzinfo=util.timezone.utc))
+
+    @staticmethod
+    def generalized_time_info():
+        def tz(hours, minutes=0):
+            return util.create_timezone(timedelta(hours=hours, minutes=minutes))
+
+        return (
+            (b'\x18\x1520180405062426.0+0200', datetime(2018, 4, 5, 6, 24, 26, 0, tz(2)), b'\x18\x0f20180405042426Z'),
+            (b'\x18\x0f2018062419-1355', datetime(2018, 6, 24, 19, 0, 0, 0, tz(-13, -55)), b'\x18\x0f20180625085500Z'),
+            (b'\x18\x0d2018062419-13', datetime(2018, 6, 24, 19, 0, 0, 0, tz(-13)), b'\x18\x0f20180625080000Z'),
+            (b'\x18\x0b2018062419Z', datetime(2018, 6, 24, 19, 0, 0, 0, tz(0)), b'\x18\x0f20180624190000Z'),
+            (b'\x18\x122018062419.15+0345', datetime(2018, 6, 24, 19, 9, 0, 0, tz(3, 45)), b'\x18\x0f20180624152400Z'),
+            (
+                b'\x18\x13201806241957,433+02',
+                datetime(2018, 6, 24, 19, 57, 25, 980000, tz(2)),
+                b'\x18\x1220180624175725.98Z',
+            ),
+            (
+                b'\x18\x1620180624195724.215999Z',
+                datetime(2018, 6, 24, 19, 57, 24, 215999, tz(0)),
+                b'\x18\x1620180624195724.215999Z',
+            ),
+            (
+                b'\x18\x150000022910.31337-0815',
+                util.extended_datetime(0, 2, 29, 10, 18, 48, 132000, tz(-8, -15)),
+                b'\x18\x1300000229183348.132Z',
+            ),
+            (b'\x18\x1520180624195724.215999', datetime(2018, 6, 24, 19, 57, 24, 215999), None),
+            (b'\x18\x0a2018062419', datetime(2018, 6, 24, 19, 0, 0, 0), None),
+        )
+
+    @data('generalized_time_info')
+    def generalized_time(self, ber_bytes, native, der_bytes):
+        decoded = core.GeneralizedTime.load(ber_bytes)
+
+        self.assertEqual(decoded.native, native)
+        self.assertEqual(decoded.native.tzinfo, native.tzinfo)
+
+        if der_bytes is not None:
+            encoded = core.GeneralizedTime(native).dump()
+            self.assertEqual(encoded, der_bytes)
+
+            decoded2 = core.GeneralizedTime.load(encoded)
+            self.assertEqual(decoded2.native, native)
+        else:
+            with self.assertRaises(ValueError):
+                encoded = core.GeneralizedTime(native).dump()
 
     @staticmethod
     def type_info():
@@ -278,6 +471,21 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(native, parsed.native)
         self.assertEqual(der, parsed.dump(force=True))
 
+    def test_int_to_bit_tuple(self):
+        self.assertEqual((), core._int_to_bit_tuple(0, 0))
+        self.assertEqual((0,), core._int_to_bit_tuple(0, 1))
+        self.assertEqual((1,), core._int_to_bit_tuple(1, 1))
+        self.assertEqual((0, 0), core._int_to_bit_tuple(0, 2))
+        self.assertEqual((0, 1), core._int_to_bit_tuple(1, 2))
+        self.assertEqual((0, 0, 1), core._int_to_bit_tuple(1, 3))
+        self.assertEqual((0, 1, 0), core._int_to_bit_tuple(2, 3))
+        self.assertEqual((1, 0, 1), core._int_to_bit_tuple(5, 3))
+
+        with self.assertRaises(ValueError):
+            core._int_to_bit_tuple(9, 3)
+        with self.assertRaises(ValueError):
+            core._int_to_bit_tuple(-9, 5)
+
     @staticmethod
     def bit_string_info():
         return (
@@ -292,6 +500,27 @@ class CoreTests(unittest.TestCase):
         bs = core.BitString(native)
         self.assertEqual(der_bytes, bs.dump())
         self.assertEqual(native, core.BitString.load(der_bytes).native)
+
+    def test_bit_string_load_dump(self):
+        bs = core.BitString.load(b'\x03\x01\x00')
+        self.assertEqual(tuple(), bs.native)
+        self.assertEqual(b'\x03\x01\x00', bs.dump(True))
+
+    @staticmethod
+    def bit_string_error_values():
+        return (
+            # unused bits in empty bit string
+            (b'\x03\x01\x05',),
+            # too many unused bits
+            (b'\x03\x03\x0e\x0c\x00',),
+            # chunk with unused bits is not last chunk
+            (b'\x23\x80\x03\x02\x01\xfe\x03\x02\x00\x55\x00\x00',),
+        )
+
+    @data('bit_string_error_values')
+    def bit_string_errors(self, enc_bytes):
+        with self.assertRaises(ValueError):
+            core.BitString.load(enc_bytes).native
 
     def test_cast(self):
         a = core.OctetBitString(b'\x00\x01\x02\x03')
@@ -350,6 +579,19 @@ class CoreTests(unittest.TestCase):
             NumChoice.load(b'\xA0\x03\x02\x01\x00\x00', strict=True)
         with self.assertRaises(ValueError):
             NumChoiceOldApi.load(b'\xA0\x03\x02\x01\x00\x00', strict=True)
+
+    def test_choice_parse_return(self):
+        nc = NumChoice.load(b'\xA0\x03\x02\x01\x00\x00')
+        nc._parsed = None
+        self.assertEqual(0, nc.parse().native)
+
+    def test_sequece_choice_choice(self):
+        CCSeq({
+            'cc': ChoiceChoice(
+                'num',
+                NumChoice('one', core.Integer(0))
+            )
+        })
 
     def test_bit_string_item_access(self):
         named = core.BitString()
@@ -594,6 +836,104 @@ class CoreTests(unittest.TestCase):
         choice2.chosen['name'] = 'bar'
         self.assertNotEqual(choice2.chosen['name'], choice2_copy.chosen['name'])
 
+    def test_dump_ber_indefinite(self):
+        # A simple primitive type that is indefinite-length-encoded will be
+        # automatically re-encoded to DER encoding
+        data = b'\x2C\x80\x0C\x03foo\x00\x00'
+        v = core.UTF8String.load(data)
+        self.assertEqual(True, v._indefinite)
+        self.assertEqual('foo', v.native)
+        self.assertEqual(b'\x0C\x03foo', v.dump())
+
+        # In this case the indefinite length items are nested, and the
+        # top-level item is fixed-length, so it won't get automatically
+        # re-encoded
+        data = b'\x30\x0d\x30\x80\x2C\x80\x0C\x03foo\x00\x00\x00\x00'
+        v = NestedUTF8Sequence.load(data)
+        self.assertEqual(data, v.dump())
+
+        # Here both the top-level and the nested encoding will get fixed since
+        # the top-level being indefinitely triggers a full re-encoding
+        data = b'\x30\x80\x30\x09\x2C\x80\x0C\x03foo\x00\x00\x00\x00'
+        v = NestedUTF8Sequence.load(data)
+        self.assertEqual(b'\x30\x07\x30\x05\x0C\x03foo', v.dump())
+
+    def test_copy_indefinite(self):
+        v = core.BitString.load(b'\x23\x80\x03\x02\x00\x04\x00\x00')
+        self.assertEqual(True, v._indefinite)
+        v2 = v.copy()
+        self.assertEqual(0, v2.method)
+        self.assertEqual(3, v2.tag)
+        self.assertEqual(False, v2._indefinite)
+        self.assertEqual((0, 0, 0, 0, 0, 1, 0, 0), v2.native)
+        self.assertEqual(b'\x03\x02\x00\x04', v2.dump())
+
+        v = core.OctetBitString.load(b'\x23\x80\x03\x02\x00\x04\x00\x00')
+        self.assertEqual(True, v._indefinite)
+        v2 = v.copy()
+        self.assertEqual(0, v2.method)
+        self.assertEqual(3, v2.tag)
+        self.assertEqual(False, v2._indefinite)
+        self.assertEqual(b'\x04', v2.native)
+        self.assertEqual(b'\x03\x02\x00\x04', v2.dump())
+
+        v = core.ParsableOctetBitString.load(b'\x23\x80\x03\x04\x00\x02\x01\x04\x00\x00')
+        self.assertEqual(4, v.parsed.native)
+        self.assertEqual(True, v._indefinite)
+        v2 = v.copy()
+        self.assertEqual(0, v2.method)
+        self.assertEqual(3, v2.tag)
+        self.assertEqual(False, v2._indefinite)
+        self.assertEqual(4, v2.parsed.native)
+        self.assertEqual(b'\x03\x04\x00\x02\x01\x04', v2.dump())
+
+        v = core.IntegerBitString.load(b'\x23\x80\x03\x02\x00\x04\x00\x00')
+        self.assertEqual(True, v._indefinite)
+        v2 = v.copy()
+        self.assertEqual(0, v2.method)
+        self.assertEqual(3, v2.tag)
+        self.assertEqual(False, v2._indefinite)
+        self.assertEqual(4, v2.native)
+        self.assertEqual(b'\x03\x02\x00\x04', v2.dump())
+
+        v = core.OctetString.load(b'\x24\x80\x04\x03foo\x00\x00')
+        self.assertEqual(True, v._indefinite)
+        v2 = v.copy()
+        self.assertEqual(0, v2.method)
+        self.assertEqual(4, v2.tag)
+        self.assertEqual(False, v2._indefinite)
+        self.assertEqual(b'foo', v2.native)
+        self.assertEqual(b'\x04\x03foo', v2.dump())
+
+        v = core.IntegerOctetString.load(b'\x24\x80\x04\x01\x04\x00\x00')
+        self.assertEqual(True, v._indefinite)
+        v2 = v.copy()
+        self.assertEqual(0, v2.method)
+        self.assertEqual(4, v2.tag)
+        self.assertEqual(False, v2._indefinite)
+        self.assertEqual(4, v2.native)
+        self.assertEqual(b'\x04\x01\x04', v2.dump())
+
+        v = core.ParsableOctetString.load(b'\x24\x80\x04\x03\x02\x01\x04\x00\x00')
+        self.assertEqual(4, v.parsed.native)
+        self.assertEqual(True, v._indefinite)
+        v2 = v.copy()
+        self.assertEqual(0, v2.method)
+        self.assertEqual(4, v2.tag)
+        self.assertEqual(False, v2._indefinite)
+        self.assertEqual(4, v2.parsed.native)
+        self.assertEqual(b'\x02\x01\x04', v2.__bytes__())
+        self.assertEqual(b'\x04\x03\x02\x01\x04', v2.dump())
+
+        v = core.UTF8String.load(b'\x2C\x80\x0C\x03foo\x00\x00')
+        self.assertEqual(True, v._indefinite)
+        v2 = v.copy()
+        self.assertEqual(0, v2.method)
+        self.assertEqual(12, v2.tag)
+        self.assertEqual(False, v2._indefinite)
+        self.assertEqual('foo', v2.native)
+        self.assertEqual(b'\x0C\x03foo', v2.dump())
+
     def test_concat(self):
         child1 = Seq({
             'id': '1.2.3',
@@ -619,6 +959,12 @@ class CoreTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             MyOids.unmap('no_such_mapping')
 
+    def test_oid_dotted_native(self):
+        self.assertEqual('abc', MyOids('1.2.3').native)
+        self.assertEqual('1.2.3', MyOids('1.2.3').dotted)
+        self.assertEqual('abc', MyOids('abc').native)
+        self.assertEqual('1.2.3', MyOids('abc').dotted)
+
     def test_dump_set(self):
         st = SetTest({'two': 2, 'one': 1})
         self.assertEqual(b'1\x06\x81\x01\x01\x82\x01\x02', st.dump())
@@ -637,7 +983,8 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(a._bytes, a.copy()._bytes)
 
     def test_indefinite_length_octet_string_2(self):
-        data = b'$\x80\x04\r\x8d\xff\xf0\x98\x076\xaf\x93nB:\xcf\xcc\x04\x15\x92w\xf7\xf0\xe4y\xff\xc7\xdc3\xb2\xd0={\x1a\x18mDr\xaaI\x00\x00'
+        data = b'$\x80\x04\r\x8d\xff\xf0\x98\x076\xaf\x93nB:\xcf\xcc\x04\x15' \
+            b'\x92w\xf7\xf0\xe4y\xff\xc7\xdc3\xb2\xd0={\x1a\x18mDr\xaaI\x00\x00'
         a = core.OctetString.load(data)
         self.assertEqual(
             b'\x8d\xff\xf0\x98\x076\xaf\x93nB:\xcf\xcc\x92w\xf7\xf0\xe4y\xff\xc7\xdc3\xb2\xd0={\x1a\x18mDr\xaaI',
@@ -686,25 +1033,109 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(a._unicode, a.copy()._unicode)
 
     def test_indefinite_length_bit_string(self):
-        data = b'#\x80\x00\x03\x02\x00\x01\x03\x02\x02\x04\x00\x00'
+        data = b'#\x80\x03\x02\x00\x01\x03\x02\x02\x04\x00\x00'
         a = core.BitString.load(data)
         self.assertEqual((0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1), a.native)
+        self.assertEqual((0, 0), a.unused_bits)
+
+        # Example from X.690 §8.6.4.2
+        prim = core.BitString.load(b'\x03\x07\x04\x0A\x3B\x5F\x29\x1C\xD0')
+        self.assertEqual((0, 0, 0, 0), prim.unused_bits)
+        indef = core.BitString.load(b'\x23\x80\x03\x03\x00\x0a\x3b\x03\x05\x04\x5f\x29\x1c\xd0\x00\x00')
+        self.assertEqual(prim.native, indef.native)
+        self.assertEqual(core._int_to_bit_tuple(0x0A3B5F291CD, 44), indef.native)
+        self.assertEqual((0, 0, 0, 0), indef.unused_bits)
+
+        unused = core.BitString.load(b'\x23\x80\x03\x03\x00\x0a\x3b\x03\x05\x04\x5f\x29\x1c\xdd\x00\x00')
+        self.assertEqual(indef.native, unused.native)
+        self.assertEqual((1, 1, 0, 1), unused.unused_bits)
+
+        unused.set(indef.native)
+        self.assertEqual(indef.native, unused.native)
+        self.assertEqual((0, 0, 0, 0), unused.unused_bits)
+
+    def test_integer_bit_string(self):
+        a = core.IntegerBitString.load(b'\x03\x02\x04\xcb')
+        self.assertEqual(12, a.native)
+        self.assertEqual((1, 0, 1, 1), a.unused_bits)
+
+        b = a.copy()
+        self.assertEqual(12, b.native)
+        self.assertEqual((1, 0, 1, 1), b.unused_bits)
+
+        a.set(56)
+        self.assertEqual((), a.unused_bits)
+        self.assertEqual(56, a.native)
+        self.assertEqual(b'\x03\x02\x00\x38', a.dump())
+
+        with self.assertRaises(TypeError):
+            a.set('badtype')
+
+        with self.assertRaises(ValueError):
+            core.IntegerBitString(-1)
 
     def test_indefinite_length_integer_bit_string(self):
-        data = b'#\x80\x00\x03\x02\x00\x01\x03\x02\x00\x04\x00\x00'
+        data = b'#\x80\x03\x02\x00\x01\x03\x02\x00\x04\x00\x00'
         a = core.IntegerBitString.load(data)
         self.assertEqual(260, a.native)
+        self.assertEqual((), a.unused_bits)
+
+        a = core.IntegerBitString.load(b'\x23\x80\x00\x00')
+        self.assertEqual(0, a.native)
+        self.assertEqual((), a.unused_bits)
+
+        a = core.IntegerBitString.load(b'\x23\x80\x03\x01\x00\x03\x03\x03\x03\x03\x00\x00')
+        self.assertEqual(96, a.native)
+        self.assertEqual((0, 1, 1), a.unused_bits)
+
+        a.set(56)
+        self.assertEqual((), a.unused_bits)
+        self.assertEqual(56, a.native)
+        self.assertEqual(b'\x03\x02\x00\x38', a.dump())
+
+    @data('bit_string_error_values')
+    def integer_bit_string_errors(self, enc_bytes):
+        with self.assertRaises(ValueError):
+            core.IntegerBitString.load(enc_bytes).native
+
+    def test_octet_bit_string(self):
+        a = core.OctetBitString.load(b'\x03\x02\x04\xcb')
+        self.assertEqual(b'\xc0', a.native)
+        self.assertEqual((1, 0, 1, 1), a.unused_bits)
+
+        a.set(b'\x38')
+        self.assertEqual((), a.unused_bits)
+        self.assertEqual(b'\x38', a.native)
+        self.assertEqual(b'\x03\x02\x00\x38', a.dump())
+
+        with self.assertRaises(TypeError):
+            a.set('badtype')
 
     def test_indefinite_length_octet_bit_string(self):
-        data = b'#\x80\x00\x03\x02\x00\x01\x03\x02\x00\x04\x00\x00'
+        data = b'#\x80\x03\x02\x00\x01\x03\x02\x00\x04\x00\x00'
         a = core.OctetBitString.load(data)
         self.assertEqual(b'\x01\x04', a.native)
         self.assertEqual(b'\x01\x04', a.__bytes__())
         # Test copying moves internal state
         self.assertEqual(a._bytes, a.copy()._bytes)
 
+        # octet bit string with unused bits
+        a = core.OctetBitString.load(b'\x23\x80\x03\x05\x05\x74\x65\x73\x74\x00\x00')
+        self.assertEqual(b'\x74\x65\x73\x60', a.native)
+        self.assertEqual((1, 0, 1, 0, 0), a.unused_bits)
+
+        a.set(b'\x38')
+        self.assertEqual((), a.unused_bits)
+        self.assertEqual(b'\x38', a.native)
+        self.assertEqual(b'\x03\x02\x00\x38', a.dump())
+
+    @data('bit_string_error_values')
+    def octet_bit_string_errors(self, enc_bytes):
+        with self.assertRaises(ValueError):
+            core.OctetBitString.load(enc_bytes).native
+
     def test_indefinite_length_parsable_octet_bit_string(self):
-        data = b'#\x80\x00\x03\x03\x00\x0C\x02\x03\x03\x00\x61\x62\x00\x00'
+        data = b'#\x80\x03\x03\x00\x0C\x02\x03\x03\x00\x61\x62\x00\x00'
         a = core.ParsableOctetBitString.load(data)
         self.assertEqual(b'\x0C\x02\x61\x62', a.parsed.dump())
         self.assertEqual(b'\x0C\x02\x61\x62', a.__bytes__())
@@ -713,6 +1144,20 @@ class CoreTests(unittest.TestCase):
         # Test copying moves internal state
         self.assertEqual(a._bytes, a.copy()._bytes)
         self.assertEqual(a._parsed, a.copy()._parsed)
+
+        with self.assertRaises(ValueError):
+            # parsable octet bit string with unused bits
+            core.ParsableOctetBitString.load(b'\x23\x80\x03\x03\x04\x02\x00\x03\x03\x04\x12\xa0\x00\x00').native
+
+    def test_integer_octet_string(self):
+        v = core.IntegerOctetString(10)
+        self.assertEqual(10, v.native)
+
+        with self.assertRaises(TypeError):
+            core.IntegerOctetString('0')
+
+        with self.assertRaises(ValueError):
+            core.IntegerOctetString(-1)
 
     def test_explicit_application_tag(self):
         data = b'\x6a\x81\x03\x02\x01\x00'
@@ -775,3 +1220,108 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(42, inum.native)
 
         self.assertEqual(der, ato.dump(force=True))
+
+    def test_sequence_choice_field_by_tuple(self):
+        val = ExplicitField({'field': ('one', 32)})
+        self.assertEqual('one', val['field'].name)
+        self.assertEqual(32, val['field'].chosen.native)
+
+    def test_sequence_choice_field_by_dict(self):
+        val = ExplicitField({'field': {'two': 32}})
+        self.assertEqual('two', val['field'].name)
+        self.assertEqual(32, val['field'].chosen.native)
+
+    def test_nested_explicit_tag_choice(self):
+        # Explicitly tagged values have a _header that contains
+        # the explicit tag and the header for the contained value.
+        # When parsing nested Choice values, it is necessary to not pull
+        # up the next Choice value's header, since Choice values
+        # themselves don't have their own header and it will result in
+        # duplication.
+        data = b'\x30\x09\x03\x01\x00\xa0\x04\xa2\x02\x80\x00'
+        image_data = SpcPeImageData.load(data, strict=True)
+        self.assertEqual(data[2:5],  image_data['flags'].dump())
+        self.assertEqual(data[5:11],  image_data['file'].dump())
+        self.assertEqual(data[5:7],  image_data['file']._header)
+        self.assertEqual(data[7:11],  image_data['file'].chosen.dump())
+        self.assertEqual(data[7:9],  image_data['file'].chosen._header)
+        self.assertEqual(data[9:11],  image_data['file'].chosen.chosen.dump())
+        self.assertEqual(data[9:11],  image_data['file'].chosen.chosen._header)
+
+        image_data2 = SpcPeImageData.load(data, strict=True)
+        self.assertEqual(data[2:5],  image_data2['flags'].dump(True))
+        self.assertEqual(data[5:11],  image_data2['file'].dump(True))
+        self.assertEqual(data[5:7],  image_data2['file']._header)
+        self.assertEqual(data[7:11],  image_data2['file'].chosen.dump(True))
+        self.assertEqual(data[7:9],  image_data2['file'].chosen._header)
+        self.assertEqual(data[9:11],  image_data2['file'].chosen.chosen.dump(True))
+        self.assertEqual(data[9:11],  image_data2['file'].chosen.chosen._header)
+
+    def test_choice_dump_header_native(self):
+        s = SpcString({'unicode': 'test'})
+        self.assertEqual(b'\x80\x08\x00t\x00e\x00s\x00t', s.dump())
+        self.assertEqual(b'', s._header)
+        self.assertEqual('test', s.native)
+        self.assertEqual(b'\x80\x08', s.chosen._header)
+        self.assertEqual('test', s.chosen.native)
+
+        link = SpcLink('file', {'unicode': 'test'})
+        self.assertEqual(b'\xa2\x0a\x80\x08\x00t\x00e\x00s\x00t', link.dump())
+        self.assertEqual(b'', link._header)
+        self.assertEqual('test', link.native)
+        self.assertEqual(b'\xa2\x0a', link.chosen._header)
+        self.assertEqual('test', link.chosen.native)
+        self.assertEqual(b'\x80\x08', link.chosen.chosen._header)
+        self.assertEqual('test', link.chosen.chosen.native)
+
+    def test_parse_broken_sequence_fields_repeatedly(self):
+        s = Seq.load(b'\x30\x06\x88\x00\x00\x00\x00\x00')
+        with self.assertRaises(ValueError):
+            s.native
+        with self.assertRaises(ValueError):
+            s.native
+
+    def test_parse_broken_sequenceof_children_repeatedly(self):
+        s = SequenceOfInts.load(b'\x30\x06\x88\x00\x00\x00\x00\x00')
+        with self.assertRaises(ValueError):
+            s.native
+        with self.assertRaises(ValueError):
+            s.native
+
+    def test_wrong_asn1value(self):
+        with self.assertRaises(TypeError):
+            Seq({
+                'id': core.Integer(1),
+                'value': 1
+            })
+
+    def test_wrong_asn1value2(self):
+        with self.assertRaises(TypeError):
+            CopySeq({
+                'name': core.UTF8String('Test'),
+                'pair': core.Integer(1)
+            })
+
+    def test_wrong_asn1value3(self):
+        with self.assertRaises(TypeError):
+            NestSeqAny({
+                'id': '3.4.5',
+                'value': core.Integer(1)
+            })
+
+    def test_wrong_asn1value4(self):
+        with self.assertRaises(TypeError):
+            NestSeqExplicit({
+                'id': '3.4.5',
+                'value': core.Integer(1)
+            })
+
+    def test_integer_octet_string_encoded_width(self):
+        a = core.IntegerOctetString(1)
+        self.assertEqual(1, a.native)
+        self.assertEqual(b'\x04\x01\x01', a.dump())
+
+        b = core.IntegerOctetString(1)
+        b.set_encoded_width(4)
+        self.assertEqual(1, b.native)
+        self.assertEqual(b'\x04\x04\x00\x00\x00\x01', b.dump())
