@@ -409,6 +409,15 @@ class CoreTests(unittest.TestCase):
             # Is past 2050
             core.UTCTime(datetime(2106, 2, 7, 6, 28, 16, tzinfo=util.timezone.utc))
 
+    def test_utctime_copy(self):
+        a = core.UTCTime(datetime(2019, 11, 11, 17, 45, 18, tzinfo=util.timezone.utc))
+        # Ensure _native is set because we want to test copy on the nested timezone object.
+        a.native
+        b = a.copy()
+        self.assertEqual(a.native, b.native)
+        self.assertEqual(a.contents, b.contents)
+        self.assertEqual(a.dump(), b.dump())
+
     @staticmethod
     def generalized_time_info():
         def tz(hours, minutes=0):
@@ -1173,7 +1182,7 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(b'\x6a\x03\x02\x01\x00', ati.dump(force=True))
 
     def test_required_field(self):
-        with self.assertRaisesRegexp(ValueError, '"id" is missing from structure'):
+        with self.assertRaisesRegex(ValueError, '"id" is missing from structure'):
             Seq({'value': core.Integer(5)}).dump()
 
     def test_explicit_application_tag_nested(self):

@@ -9,7 +9,7 @@ jobs:
       matrix:
         os:
           - ubuntu-18.04
-          - macOS-10.14
+          - macOS-latest
           - windows-2019
         python:
           - '2.7'
@@ -20,7 +20,7 @@ jobs:
         exclude:
           - os: ubuntu-18.04
             arch: x86
-          - os: macOS-10.14
+          - os: macOS-latest
             arch: x86
     steps:
       - uses: actions/checkout@master
@@ -32,7 +32,18 @@ jobs:
         run: python run.py deps
       - name: Run test suite
         run: python run.py ci
-      - name: Run test suite (OpenSSL/macOS)
+        env:
+          OSCRYPTO_USE_CTYPES: 'true'
+      - name: Run test suite (Mac cffi)
+        run: python run.py ci
+        if: runner.os == 'macOS'
+      - name: Run test suite (Mac OpenSSL)
+        run: python run.py ci
+        if: runner.os == 'macOS'
+        env:
+          OSCRYPTO_USE_OPENSSL: /usr/lib/libcrypto.dylib,/usr/lib/libssl.dylib
+          OSCRYPTO_USE_CTYPES: 'true'
+      - name: Run test suite (Mac OpenSSL/cffi)
         run: python run.py ci
         if: runner.os == 'macOS'
         env:

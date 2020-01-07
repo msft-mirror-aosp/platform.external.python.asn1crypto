@@ -6,8 +6,8 @@ import os
 import unittest
 
 
-__version__ = '1.0.0'
-__version_info__ = (1, 0, 0)
+__version__ = '1.3.0'
+__version_info__ = (1, 3, 0)
 
 
 def _import_from(mod, path, mod_dir=None):
@@ -92,6 +92,7 @@ def test_classes():
     from .test_cms import CMSTests
     from .test_crl import CRLTests
     from .test_csr import CSRTests
+    from .test_init import InitTests
     from .test_keys import KeysTests
     from .test_ocsp import OCSPTests
     from .test_pem import PEMTests
@@ -107,6 +108,7 @@ def test_classes():
         CMSTests,
         CRLTests,
         CSRTests,
+        InitTests,
         KeysTests,
         OCSPTests,
         PEMTests,
