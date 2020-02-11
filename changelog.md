@@ -1,5 +1,33 @@
 # changelog
 
+## 1.3.0
+
+ - Added `encrypt_key_pref` (`1.2.840.113549.1.9.16.2.11`) to
+   `cms.CMSAttributeType()`, along with related structures
+ - Added Brainpool curves from RFC 5639 to `keys.NamedCurve()`
+ - Fixed `x509.Certificate().subject_directory_attributes_value`
+ - Fixed some incorrectly computed minimum elliptic curve primary key
+   encoding sizes in `keys.NamedCurve()`
+ - Fixed a `TypeError` when trying to call `.untag()` or `.copy()` on a
+   `core.UTCTime()` or `core.GeneralizedTime()`, or a value containing one,
+   when using Python 2
+
+## 1.2.0
+
+ - Added `asn1crypto.load_order()`, which returns a `list` of unicode strings
+   of the names of the fully-qualified module names for all of submodules of
+   the package. The module names are listed in their dependency load order.
+   This is primarily intended for the sake of implementing hot reloading.
+
+## 1.1.0
+
+ - Added User ID (`0.9.2342.19200300.100.1.1`) to `x509.NameType()`
+ - Added various EC named curves to `keys.NamedCurve()`
+
+## 1.0.1
+
+ - Fix an absolute import in `keys` to a relative import
+
 ## 1.0.0
 
  - Backwards Compatibility Breaks
