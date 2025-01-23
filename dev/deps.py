@@ -361,6 +361,14 @@ def _extract_package(deps_dir, pkg_path, pkg_dir):
         root = os.path.abspath(os.path.join(deps_dir, '..'))
         install_lib = os.path.basename(deps_dir)
 
+        # Ensure we pick up previously installed packages when running
+        # setup.py. This is important for things like setuptools.
+        env = os.environ.copy()
+        if sys.version_info >= (3,):
+            env['PYTHONPATH'] = deps_dir
+        else:
+            env[b'PYTHONPATH'] = deps_dir.encode('utf-8')
+
         _execute(
             [
                 sys.executable,
@@ -370,7 +378,8 @@ def _extract_package(deps_dir, pkg_path, pkg_dir):
                 '--install-lib=%s' % install_lib,
                 '--no-compile'
             ],
-            setup_dir
+            setup_dir,
+            env=env
         )
 
     finally:
@@ -629,7 +638,17 @@ def _parse_requires(path):
             package = package.strip()
             cond = cond.strip()
             cond = cond.replace('sys_platform', repr(sys_platform))
-            cond = cond.replace('python_version', repr(python_version))
+            cond = re.sub(
+                r'[\'"]'
+                r'(\d+(?:\.\d+)*)'
+                r'([-._]?(?:alpha|a|beta|b|preview|pre|c|rc)\.?\d*)?'
+                r'(-\d+|(?:[-._]?(?:rev|r|post)\.?\d*))?'
+                r'([-._]?dev\.?\d*)?'
+                r'[\'"]',
+                r'_tuple_from_ver(\g<0>)',
+                cond
+            )
+            cond = cond.replace('python_version', '_tuple_from_ver(%r)' % python_version)
             if not eval(cond):
                 continue
         else:
@@ -667,7 +686,7 @@ def _parse_requires(path):
     return packages
 
 
-def _execute(params, cwd, retry=None):
+def _execute(params, cwd, retry=None, env=None):
     """
     Executes a subprocess
 
@@ -688,7 +707,8 @@ def _execute(params, cwd, retry=None):
         params,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        cwd=cwd
+        cwd=cwd,
+        env=env
     )
     stdout, stderr = proc.communicate()
     code = proc.wait()

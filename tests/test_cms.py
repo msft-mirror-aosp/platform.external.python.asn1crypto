@@ -21,6 +21,30 @@ tests_root = os.path.dirname(__file__)
 fixtures_dir = os.path.join(tests_root, 'fixtures')
 
 
+class ClearanceTests(unittest.TestCase):
+
+    def test_clearance_decode_bad_tagging(self):
+        rfc_3281_wrong_tagging = b'\x30\x08\x80\x02\x88\x37\x81\x02\x02\x4c'
+        # This test documents the fact that we can't deal with the "wrong"
+        # version of Clearance in RFC 3281
+        self.assertRaises(
+            ValueError,
+            lambda: cms.Clearance.load(rfc_3281_wrong_tagging).native
+        )
+
+    def test_clearance_decode_correct_tagging(self):
+        correct_tagging = b'\x30\x08\x06\x02\x88\x37\x03\x02\x02\x4c'
+        clearance_obj = cms.Clearance.load(correct_tagging)
+        self.assertEqual(
+            util.OrderedDict([
+                ('policy_id', '2.999'),
+                ('class_list', set(['secret', 'top_secret', 'unclassified'])),
+                ('security_categories', None)
+            ]),
+            clearance_obj.native
+        )
+
+
 class CMSTests(unittest.TestCase):
 
     def test_create_content_info_data(self):
@@ -887,6 +911,60 @@ class CMSTests(unittest.TestCase):
             signer['signature'].native
         )
 
+    def test_parse_content_info_smime_capabilities(self):
+        with open(os.path.join(fixtures_dir, 'smime-signature-generated-by-thunderbird.p7s'), 'rb') as f:
+            info = cms.ContentInfo.load(f.read())
+
+        signed_attrs = info['content']['signer_infos'][0]['signed_attrs']
+
+        self.assertEqual(
+            'smime_capabilities',
+            signed_attrs[3]['type'].native
+        )
+        smime_capabilities = signed_attrs[3]
+
+        self.assertEqual(
+            1,
+            len(smime_capabilities['values'])
+        )
+        self.assertEqual(
+            7,
+            len(smime_capabilities['values'][0])
+        )
+        self.assertEqual(
+            [capability.native for capability in smime_capabilities['values'][0]],
+            [
+                util.OrderedDict([
+                    ('capability_id', 'aes256_cbc'),
+                    ('parameters', None),
+                ]),
+                util.OrderedDict([
+                    ('capability_id', 'aes128_cbc'),
+                    ('parameters', None),
+                ]),
+                util.OrderedDict([
+                    ('capability_id', 'tripledes_3key'),
+                    ('parameters', None),
+                ]),
+                util.OrderedDict([
+                    ('capability_id', 'rc2'),
+                    ('parameters', 128),
+                ]),
+                util.OrderedDict([
+                    ('capability_id', 'rc2'),
+                    ('parameters', 64),
+                ]),
+                util.OrderedDict([
+                    ('capability_id', 'des'),
+                    ('parameters', None),
+                ]),
+                util.OrderedDict([
+                    ('capability_id', 'rc2'),
+                    ('parameters', 40),
+                ]),
+            ]
+        )
+
     def test_bad_teletex_inside_pkcs7(self):
         with open(os.path.join(fixtures_dir, 'mozilla-generated-by-openssl.pkcs7.der'), 'rb') as f:
             content = cms.ContentInfo.load(f.read())['content']
@@ -900,4 +978,26 @@ class CMSTests(unittest.TestCase):
                 ('common_name', '{02b860db-e71f-48d2-a5a0-82072a93d33c}')
             ]),
             content['certificates'][0].chosen['tbs_certificate']['subject'].native
+        )
+
+    def test_parse_attribute_cert(self):
+        # regression test for tagging issue in AttCertIssuer
+
+        with open(os.path.join(fixtures_dir, 'example-attr-cert.der'), 'rb') as f:
+            ac_bytes = f.read()
+        ac_parsed = cms.AttributeCertificateV2.load(ac_bytes)
+        self.assertEqual(ac_bytes, ac_parsed.dump(force=True))
+
+        ac_info = ac_parsed['ac_info']
+        self.assertIsInstance(ac_info['issuer'].chosen, cms.V2Form)
+        self.assertEqual(1, len(ac_info['issuer'].chosen['issuer_name']))
+
+    def test_create_role_syntax(self):
+        rs = cms.RoleSyntax({'role_name': {'rfc822_name': 'test@example.com'}})
+        self.assertEqual(
+            util.OrderedDict([
+                ('role_authority', None),
+                ('role_name', 'test@example.com')
+            ]),
+            rs.native
         )
