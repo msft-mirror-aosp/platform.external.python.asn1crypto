@@ -1,19 +1,20 @@
+# This project was upgraded with external_updater.
+# Usage: tools/external_updater/updater.sh update external/python/asn1crypto
+# For more info, check https://cs.android.com/android/platform/superproject/main/+/main:tools/external_updater/README.md
+
 name: "asn1crypto"
 description: "A fast, pure Python library for parsing and serializing ASN.1 structures."
 third_party {
-  url {
-    type: HOMEPAGE
-    value: "https://github.com/wbond/asn1crypto"
-  }
-  url {
-    type: GIT
-    value: "https://github.com/wbond/asn1crypto"
-  }
-  version: "1.4.0"
   license_type: NOTICE
   last_upgrade_date {
-    year: 2020
-    month: 10
-    day: 28
+    year: 2025
+    month: 1
+    day: 22
+  }
+  homepage: "https://github.com/wbond/asn1crypto"
+  identifier {
+    type: "Git"
+    value: "https://github.com/wbond/asn1crypto"
+    version: "1.5.1"
   }
 }
